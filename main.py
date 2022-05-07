@@ -32,7 +32,7 @@ class SkipFrames(gym.Wrapper):
 class GrayScaleObservation(gym.ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
-        self.observation_space = Box(low=0, high=255, shape=(84, 84, 1), dtype=np.uint8)
+        self.observation_space = Box(low=0, high=255, shape=(96, 96, 1), dtype=np.uint8)
 
     def observation(self, observation):
         transform = transforms.Grayscale()
@@ -55,22 +55,23 @@ def create_wrap_env():
     env = JoypadSpace(env, RIGHT_ONLY)
     env = SkipFrames(env, 4)
     env = GrayScaleObservation(env)
-    env = ResizeObservation(env, 84)
+    env = ResizeObservation(env, 96)
     env = FrameStack(env, 4)
     return env
 
 class Model(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, save_directory):
         super(Model, self).__init__()
+        self.save_directory = save_directory
         self.layers = nn.Sequential(
-            nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4),
+            nn.Conv2d(input_dim[0], 32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
             nn.Flatten(),
         )
         self.layers_outsize = self._get_conv_out(input_dim)
@@ -79,13 +80,25 @@ class Model(nn.Module):
             nn.ReLU(),
             nn.Linear(512, output_dim),
         )
-
+#todo model init
     def forward(self, input):
-        return self.fc(self.layers(input))
+        out = self.layers(input)
+        out = self.fc(out)
+        return out
 
     def _get_conv_out(self, shape):
         out = self.layers(torch.zeros(1, *shape[:3]))
         return int(np.prod(out.size()))
+
+    def save_model(self):
+        torch.save(self.layers.state_dict(), self.save_directory + "/layers.dat")
+        torch.save(self.fc.state_dict(), self.save_directory + "/fc.dat")
+
+    def load_model(self):
+        self.layers.load_state_dict(torch.load(self.save_directory + "/layers.dat"))
+        self.fc.load_state_dict(torch.load(self.save_directory + "/fc.dat"))
+        self.fc.eval()
+        self.layers.eval()
 
 
 class Agent:
@@ -107,15 +120,16 @@ class Agent:
         self.learning_rate = 0.0002
         self.loss = torch.nn.MSELoss()
         self.current_episode_reward = 0.0
+        self.model = Model(self.observation_dim, self.action_dim, self.save_directory).cuda()
+        self.exploration_rate = 1.0
+        self.current_step = 0
+        self.memory = deque(maxlen=30000)
+        self.episode = 0
+        self.episode_rewards = []
+        self.average_episode_rewards = []
 
-        if not continue_training:
-            self.model = Model(self.observation_dim, self.action_dim).cuda()
-            self.exploration_rate = 1.0
-            self.current_step = 0
-            self.memory = deque(maxlen=30000)
-            self.episode = 0
-            self.episode_rewards = []
-            self.average_episode_rewards = []
+        if continue_training:
+            self.load_checkpoint()
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate)
 
@@ -133,7 +147,7 @@ class Agent:
 
     def draw_graph(self):
         plt.title("Training graph")
-        plt.xlabel("Episodes (x10)")
+        plt.xlabel("Iterations (x10)")
         plt.ylabel("Average Reward")
         plt.plot(self.average_episode_rewards)
         plt.savefig(self.save_directory + "/graphs/graph.png")
@@ -152,8 +166,9 @@ class Agent:
         state, next_state, action, reward, done = self.recall()
         q_estimate = self.model(state.cuda())[np.arange(0, self.batch_size), action.cuda()]
         with torch.no_grad():
-            best_action = torch.argmax(self.model(next_state.cuda()), dim=1)
-            next_q = self.model(next_state.cuda())[np.arange(0, self.batch_size), best_action]
+            next_state_cuda = self.model(next_state.cuda())
+            best_action = torch.argmax(next_state_cuda, dim=1)
+            next_q = next_state_cuda[np.arange(0, self.batch_size), best_action]
             q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
         loss = self.loss(q_estimate, q_target)
         self.optimizer.zero_grad()
@@ -176,9 +191,23 @@ class Agent:
         return action
 
     def save_checkpoint(self):
-        with open(self.save_directory + "/data.dat", "wb") as f:
-            pickle.dump(self, f)
+        self.model.save_model()
+        with open(self.save_directory + "/agent_variables.dat", "wb") as f:
+            pickle.dump([self.exploration_rate,
+                         self.current_step,
+                         self.episode,
+                         self.episode_rewards,
+                         self.average_episode_rewards], f)
 
+    def load_checkpoint(self):
+        self.model.load_model()
+
+        with open(self.save_directory + "/agent_variables.dat", "rb") as f:
+            self.exploration_rate,\
+            self.current_step,\
+            self.episode,\
+            self.episode_rewards,\
+            self.average_episode_rewards = pickle.load(f)
 
     def next_episode(self):
         self.episode += 1
@@ -222,7 +251,7 @@ def run(continue_training):
 
 def main():
     run(continue_training=False)
-
+    return
 
 if __name__ == "__main__":
     main()
