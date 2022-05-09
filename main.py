@@ -44,10 +44,7 @@ class ResizeObservation(gym.ObservationWrapper):
         super().__init__(env)
         self.shape = (shape, shape)
         obs_shape = self.shape + self.observation_space.shape[2:]
-        print(obs_shape)
-        print(self.observation_space.shape[2:])
         self.observation_space = Box(low=0, high=1, shape=obs_shape, dtype=np.uint8)
-        print(self.observation_space.shape)
 
 
     def observation(self, observation):
