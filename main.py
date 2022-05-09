@@ -44,10 +44,17 @@ class ResizeObservation(gym.ObservationWrapper):
         super().__init__(env)
         self.shape = (shape, shape)
         obs_shape = self.shape + self.observation_space.shape[2:]
+        print(obs_shape)
+        print(self.observation_space.shape[2:])
         self.observation_space = Box(low=0, high=1, shape=obs_shape, dtype=np.uint8)
+        print(self.observation_space.shape)
+
 
     def observation(self, observation):
-        transformations = transforms.Compose([transforms.Resize(self.shape), transforms.Normalize(0, 255)])
+        #transformations = transforms.Compose([transforms.Resize(self.shape), transforms.Normalize(0, 255)])
+        transformations = transforms.Resize(self.shape)
+        #a = transformations(observation).squeeze(0)
+        #print(transformations(observation).squeeze(0).size())
         return transformations(observation).squeeze(0)
 
 def create_wrap_env():
@@ -218,13 +225,8 @@ def run(continue_training):
     save_directory = "data"
     env = create_wrap_env()
 
-    if continue_training:
-        with open(save_directory + "/data.dat", "rb") as f:
-            agent = pickle.load(f)
-            agent.action_dim = env.action_space.n
-            agent.observation_dim = env.observation_space.shape
-    else:
-        agent = Agent(action_dim=env.action_space.n,
+
+    agent = Agent(action_dim=env.action_space.n,
                       observation_dim=env.observation_space.shape,
                       save_directory=save_directory,
                       continue_training=continue_training,
