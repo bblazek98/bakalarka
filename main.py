@@ -51,10 +51,7 @@ class ResizeObservation(gym.ObservationWrapper):
 
 
     def observation(self, observation):
-        #transformations = transforms.Compose([transforms.Resize(self.shape), transforms.Normalize(0, 255)])
-        transformations = transforms.Resize(self.shape)
-        #a = transformations(observation).squeeze(0)
-        #print(transformations(observation).squeeze(0).size())
+        transformations = transforms.Compose([transforms.Resize(self.shape), transforms.Normalize(0, 255)])
         return transformations(observation).squeeze(0)
 
 def create_wrap_env():
